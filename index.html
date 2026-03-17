@@ -164,16 +164,31 @@ header { display:flex; align-items:center; justify-content:space-between; paddin
 
 .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%) translateY(60px); background:var(--accent); color:#000; font-family:'Bebas Neue',sans-serif; font-size:16px; letter-spacing:2px; padding:8px 20px; z-index:4000; transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1); clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,8px 100%,0 calc(100% - 8px)); }
 .toast.show { transform:translateX(-50%) translateY(0); }
+
+/* 住所検索 */
+.search-bar { display:flex; align-items:center; gap:0; background:var(--surface2); border:1px solid var(--border); transition:border-color 0.15s; }
+.search-bar:focus-within { border-color:var(--accent); }
+.search-input { background:transparent; border:none; color:var(--text); padding:6px 10px; font-family:'Noto Sans JP',sans-serif; font-size:13px; outline:none; width:180px; }
+.search-input::placeholder { color:var(--muted); font-size:12px; }
+.search-btn { background:transparent; border:none; border-left:1px solid var(--border); color:var(--muted); padding:6px 10px; cursor:pointer; font-size:14px; transition:all 0.15s; }
+.search-btn:hover { color:var(--accent); background:rgba(240,224,0,0.08); }
+.search-loading { display:none; color:var(--muted); font-size:12px; font-family:'Share Tech Mono',monospace; padding:0 8px; }
+.search-loading.show { display:block; }
 </style>
 </head>
 <body>
 
 <header>
   <div style="display:flex;align-items:center;gap:16px">
-    <div class="logo">SPOT MAP<span>β v0.2</span></div>
+    <div class="logo">SPOT MAP<span>β v0.3</span></div>
     <div class="mode-indicator" id="modeIndicator">ADD MODE — クリックでピン設置</div>
   </div>
   <div class="header-actions">
+    <div class="search-bar">
+      <input class="search-input" id="searchInput" type="text" placeholder="住所で検索（例: 盛岡市上田）">
+      <span class="search-loading" id="searchLoading">...</span>
+      <button class="search-btn" id="searchBtn" title="検索">🔍</button>
+    </div>
     <button class="btn-ghost" id="toggleSidebar">スポット一覧</button>
     <button class="btn" id="addModeBtn">＋ スポット追加</button>
   </div>
@@ -554,7 +569,33 @@ document.getElementById('toggleSidebar').addEventListener('click', ()=>{
   document.getElementById(id).addEventListener('click', e=>{ if(e.target.id===id) closeModal(id); });
 });
 
-// UTILS
+// SEARCH
+async function searchAddress() {
+  const q = document.getElementById('searchInput').value.trim();
+  if(!q) return;
+  const loading = document.getElementById('searchLoading');
+  loading.classList.add('show');
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&accept-language=ja`,
+      { headers: { 'User-Agent': 'SpotMapApp/1.0' } }
+    );
+    const data = await res.json();
+    if(data.length === 0) { showToast('場所が見つかりませんでした'); return; }
+    const { lat, lon, display_name } = data[0];
+    map.setView([parseFloat(lat), parseFloat(lon)], 15);
+    showToast(`📍 ${display_name.split(',')[0]}`);
+  } catch {
+    showToast('検索に失敗しました');
+  } finally {
+    loading.classList.remove('show');
+  }
+}
+
+document.getElementById('searchBtn').addEventListener('click', searchAddress);
+document.getElementById('searchInput').addEventListener('keydown', e=>{ if(e.key==='Enter') searchAddress(); });
+
+
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function fmtTime(ts) {
   const d=new Date(ts), now=new Date(), diff=now-d;
