@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SPOT MAP — スケートスポットを探せ</title>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+JP:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --bg: #0a0a0a; --surface: #141414; --surface2: #1e1e1e; --surface3: #242424;
+  --border: #2a2a2a; --accent: #f0e000; --accent2: #ff3c00;
+  --text: #f0ede8; --muted: #888;
+  --tag-skate: #f0e000; --tag-outdoor: #00e5a0; --tag-other: #7c7cff;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-family:'Noto Sans JP',sans-serif; height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+
+header { display:flex; align-items:center; justify-content:space-between; padding:0 20px; height:52px; background:var(--bg); border-bottom:1px solid var(--border); z-index:1000; flex-shrink:0; }
+.logo { font-family:'Bebas Neue',sans-serif; font-size:26px; letter-spacing:4px; color:var(--accent); text-shadow:2px 2px 0 var(--accent2); }
+.logo span { color:var(--text); font-size:13px; font-family:'Share Tech Mono',monospace; letter-spacing:2px; margin-left:10px; vertical-align:middle; opacity:0.6; }
+.header-actions { display:flex; gap:10px; align-items:center; }
+.btn { background:var(--accent); color:#000; border:none; padding:6px 14px; font-family:'Bebas Neue',sans-serif; font-size:16px; letter-spacing:2px; cursor:pointer; transition:all 0.15s; clip-path:polygon(0 0,calc(100% - 6px) 0,100% 6px,100% 100%,6px 100%,0 calc(100% - 6px)); }
+.btn:hover { background:var(--accent2); color:#fff; }
+.btn-ghost { background:transparent; color:var(--muted); border:1px solid var(--border); padding:5px 12px; font-family:'Share Tech Mono',monospace; font-size:12px; cursor:pointer; transition:all 0.15s; }
+.btn-ghost:hover { color:var(--text); border-color:var(--accent); }
+.mode-indicator { display:flex; align-items:center; gap:6px; font-family:'Share Tech Mono',monospace; font-size:12px; color:var(--accent2); opacity:0; transition:opacity 0.3s; }
+.mode-indicator.active { opacity:1; }
+.mode-indicator::before { content:''; width:8px; height:8px; background:var(--accent2); border-radius:50%; animation:blink 1s infinite; }
+@keyframes blink { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.3;transform:scale(0.6)} }
+
+.main { display:flex; flex:1; overflow:hidden; }
+#map { flex:1; position:relative; }
+.leaflet-container { background:#111 !important; }
+#map.add-mode { cursor:crosshair !important; }
+.map-hint { position:absolute; top:12px; left:50%; transform:translateX(-50%); background:rgba(255,60,0,0.9); color:#fff; font-family:'Share Tech Mono',monospace; font-size:12px; padding:5px 14px; z-index:1000; pointer-events:none; opacity:0; transition:opacity 0.3s; letter-spacing:1px; }
+.map-hint.show { opacity:1; }
+
+.sidebar { width:300px; background:var(--surface); border-left:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; flex-shrink:0; }
+.sidebar-header { padding:14px 16px 10px; border-bottom:1px solid var(--border); }
+.sidebar-title { font-family:'Bebas Neue',sans-serif; font-size:18px; letter-spacing:3px; color:var(--accent); }
+.spot-count { font-family:'Share Tech Mono',monospace; font-size:11px; color:var(--muted); margin-top:2px; }
+.sidebar-list { flex:1; overflow-y:auto; padding:8px; }
+.sidebar-list::-webkit-scrollbar { width:3px; }
+.sidebar-list::-webkit-scrollbar-thumb { background:var(--border); }
+
+.spot-card { background:var(--surface2); border:1px solid var(--border); border-left:3px solid var(--accent); padding:10px 12px; margin-bottom:6px; cursor:pointer; transition:all 0.15s; position:relative; }
+.spot-card:hover { border-color:var(--accent); background:#222; transform:translateX(2px); }
+.spot-card.type-outdoor { border-left-color:var(--tag-outdoor); }
+.spot-card.type-other { border-left-color:var(--tag-other); }
+.spot-card-name { font-weight:700; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.spot-card-meta { display:flex; align-items:center; gap:8px; margin-top:4px; }
+.spot-tag { font-family:'Share Tech Mono',monospace; font-size:10px; padding:1px 6px; border-radius:2px; background:var(--accent); color:#000; }
+.spot-tag.outdoor { background:var(--tag-outdoor); }
+.spot-tag.other { background:var(--tag-other); color:#fff; }
+.spot-post-count { font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--muted); }
+.spot-checkins { position:absolute; right:10px; top:50%; transform:translateY(-50%); font-family:'Share Tech Mono',monospace; font-size:11px; color:var(--accent2); background:rgba(255,60,0,0.15); border:1px solid rgba(255,60,0,0.4); padding:2px 7px; border-radius:2px; }
+.checkin-count-detail { font-family:'Share Tech Mono',monospace; font-size:12px; color:var(--tag-outdoor); background:rgba(0,229,160,0.1); border:1px solid rgba(0,229,160,0.3); padding:10px 14px; margin-bottom:12px; display:flex; align-items:center; gap:12px; }
+.checkin-count-detail .count-num { font-size:28px; font-family:'Bebas Neue',sans-serif; color:var(--tag-outdoor); line-height:1; }
+.checkin-count-detail .count-label { font-size:11px; color:var(--muted); line-height:1.6; }
+.empty-state { padding:30px 16px; text-align:center; color:var(--muted); }
+.empty-state .icon { font-size:36px; margin-bottom:10px; opacity:0.5; }
+.empty-state p { font-size:12px; line-height:1.7; }
+
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.82); z-index:2000; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(4px); opacity:0; pointer-events:none; transition:opacity 0.2s; }
+.modal-overlay.open { opacity:1; pointer-events:all; }
+.modal { background:var(--surface); border:1px solid var(--border); width:400px; max-width:94vw; transform:translateY(16px); transition:transform 0.2s; clip-path:polygon(0 0,calc(100% - 16px) 0,100% 16px,100% 100%,16px 100%,0 calc(100% - 16px)); }
+.modal-overlay.open .modal { transform:translateY(0); }
+.modal-header { padding:16px 20px 12px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+.modal-title { font-family:'Bebas Neue',sans-serif; font-size:22px; letter-spacing:3px; color:var(--accent); }
+.modal-close { background:none; border:1px solid var(--border); color:var(--muted); width:28px; height:28px; cursor:pointer; font-size:16px; display:flex; align-items:center; justify-content:center; transition:all 0.15s; }
+.modal-close:hover { color:var(--text); border-color:var(--accent2); }
+.modal-body { padding:20px; }
+.modal-footer { padding:12px 20px 16px; display:flex; gap:10px; justify-content:flex-end; }
+
+.form-group { margin-bottom:16px; }
+.form-label { display:block; font-family:'Share Tech Mono',monospace; font-size:11px; color:var(--muted); letter-spacing:2px; margin-bottom:6px; }
+.form-input { width:100%; background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:9px 12px; font-family:'Noto Sans JP',sans-serif; font-size:14px; outline:none; transition:border-color 0.15s; }
+.form-input:focus { border-color:var(--accent); }
+.form-input::placeholder { color:var(--muted); }
+.type-selector { display:flex; gap:8px; }
+.type-btn { flex:1; padding:8px; background:var(--surface2); border:1px solid var(--border); color:var(--muted); font-family:'Share Tech Mono',monospace; font-size:12px; cursor:pointer; transition:all 0.15s; text-align:center; }
+.type-btn.selected.skate { border-color:var(--tag-skate); color:var(--tag-skate); background:rgba(240,224,0,0.1); }
+.type-btn.selected.outdoor { border-color:var(--tag-outdoor); color:var(--tag-outdoor); background:rgba(0,229,160,0.1); }
+.type-btn.selected.other { border-color:var(--tag-other); color:var(--tag-other); background:rgba(124,124,255,0.1); }
+.coords-display { font-family:'Share Tech Mono',monospace; font-size:11px; color:var(--muted); background:var(--surface2); padding:8px 12px; border:1px solid var(--border); }
+
+/* 詳細モーダル */
+.detail-modal { width:500px; max-height:90vh; display:flex; flex-direction:column; overflow:hidden; }
+.detail-tabs { display:flex; border-bottom:1px solid var(--border); flex-shrink:0; }
+.detail-tab { flex:1; padding:10px; background:transparent; border:none; color:var(--muted); font-family:'Bebas Neue',sans-serif; font-size:16px; letter-spacing:2px; cursor:pointer; transition:all 0.15s; border-bottom:2px solid transparent; }
+.detail-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+.detail-tab:hover:not(.active) { color:var(--text); }
+.detail-panel { display:none; flex:1; overflow:hidden; flex-direction:column; }
+.detail-panel.active { display:flex; }
+
+/* チェックインパネル */
+.checkin-panel-body { padding:20px; }
+.spot-info-bar { background:var(--surface2); border:1px solid var(--border); padding:12px 14px; margin-bottom:16px; }
+.spot-info-bar-name { font-weight:900; font-size:16px; }
+.spot-info-bar-meta { font-family:'Share Tech Mono',monospace; font-size:11px; color:var(--muted); margin-top:3px; }
+.detail-actions { display:flex; gap:8px; }
+.checkin-btn { flex:1; background:var(--accent2); color:#fff; border:none; padding:12px; font-family:'Bebas Neue',sans-serif; font-size:20px; letter-spacing:2px; cursor:pointer; transition:all 0.15s; clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,8px 100%,0 calc(100% - 8px)); }
+.checkin-btn:hover { background:#ff5500; }
+.checkin-btn.checked-in { background:var(--tag-outdoor); color:#000; }
+.delete-btn { background:transparent; border:1px solid #444; color:#666; padding:12px 14px; font-size:16px; cursor:pointer; transition:all 0.15s; }
+.delete-btn:hover { border-color:var(--accent2); color:var(--accent2); }
+.checkin-status { font-family:'Share Tech Mono',monospace; font-size:11px; color:var(--tag-outdoor); text-align:center; padding:8px; display:none; margin-top:8px; background:rgba(0,229,160,0.08); border:1px solid rgba(0,229,160,0.2); }
+.checkin-status.visible { display:block; }
+
+/* 掲示板パネル */
+.board-panel { display:flex; flex-direction:column; flex:1; overflow:hidden; }
+.board-posts { flex:1; overflow-y:auto; padding:12px 16px; display:flex; flex-direction:column; gap:10px; }
+.board-posts::-webkit-scrollbar { width:3px; }
+.board-posts::-webkit-scrollbar-thumb { background:var(--border); }
+.post-empty { color:var(--muted); font-size:12px; text-align:center; padding:30px 0; }
+.post-item { background:var(--surface2); border:1px solid var(--border); border-left:3px solid var(--border); padding:10px 12px; animation:postIn 0.2s ease; }
+@keyframes postIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+.post-header { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.post-author { font-family:'Share Tech Mono',monospace; font-size:12px; color:var(--accent); font-weight:bold; }
+.post-time { font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--muted); }
+.post-delete-btn { margin-left:auto; background:none; border:none; color:#555; cursor:pointer; font-size:12px; padding:0 4px; transition:color 0.15s; }
+.post-delete-btn:hover { color:var(--accent2); }
+.post-body { font-size:13px; line-height:1.6; color:var(--text); word-break:break-word; }
+.post-photo { margin-top:8px; max-width:100%; max-height:200px; object-fit:cover; display:block; border:1px solid var(--border); cursor:pointer; transition:opacity 0.15s; }
+.post-photo:hover { opacity:0.85; }
+
+.board-form { border-top:1px solid var(--border); padding:12px 16px; flex-shrink:0; background:var(--surface); }
+.board-form-top { display:flex; gap:8px; margin-bottom:8px; }
+.post-name-input { width:90px; background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:7px 10px; font-family:'Share Tech Mono',monospace; font-size:12px; outline:none; flex-shrink:0; }
+.post-name-input:focus { border-color:var(--accent); }
+.post-text-input { flex:1; background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:7px 10px; font-family:'Noto Sans JP',sans-serif; font-size:13px; outline:none; resize:none; height:36px; transition:border-color 0.15s,height 0.15s; }
+.post-text-input:focus { border-color:var(--accent); height:60px; }
+.board-form-bottom { display:flex; align-items:center; gap:8px; }
+.photo-label { background:var(--surface3); border:1px solid var(--border); color:var(--muted); padding:6px 10px; font-family:'Share Tech Mono',monospace; font-size:11px; cursor:pointer; transition:all 0.15s; }
+.photo-label:hover { border-color:var(--accent); color:var(--text); }
+.photo-preview { width:36px; height:36px; object-fit:cover; border:1px solid var(--border); display:none; }
+.photo-preview.show { display:block; }
+.photo-clear { background:none; border:none; color:var(--muted); cursor:pointer; font-size:14px; display:none; }
+.photo-clear.show { display:block; }
+.post-submit-btn { margin-left:auto; background:var(--accent); color:#000; border:none; padding:7px 16px; font-family:'Bebas Neue',sans-serif; font-size:16px; letter-spacing:2px; cursor:pointer; transition:all 0.15s; }
+.post-submit-btn:hover { background:var(--accent2); color:#fff; }
+
+/* ライトボックス */
+.lightbox { position:fixed; inset:0; background:rgba(0,0,0,0.95); z-index:3000; display:flex; align-items:center; justify-content:center; cursor:pointer; opacity:0; pointer-events:none; transition:opacity 0.2s; }
+.lightbox.open { opacity:1; pointer-events:all; }
+.lightbox img { max-width:90vw; max-height:90vh; object-fit:contain; }
+
+/* マーカー */
+.custom-marker { display:flex; flex-direction:column; align-items:center; }
+.marker-dot { width:14px; height:14px; border-radius:50%; background:var(--accent); border:2px solid #000; box-shadow:0 0 8px rgba(240,224,0,0.6); }
+.marker-dot.outdoor { background:var(--tag-outdoor); box-shadow:0 0 8px rgba(0,229,160,0.6); }
+.marker-dot.other { background:var(--tag-other); box-shadow:0 0 8px rgba(124,124,255,0.6); }
+.marker-dot.checked-in { animation:markerPulse 1.5s infinite; }
+@keyframes markerPulse { 0%,100%{box-shadow:0 0 6px rgba(255,60,0,0.8),0 0 0 0 rgba(255,60,0,0.4)} 50%{box-shadow:0 0 12px rgba(255,60,0,1),0 0 0 8px rgba(255,60,0,0)} }
+.marker-label { font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--text); background:rgba(0,0,0,0.75); padding:1px 5px; white-space:nowrap; margin-top:2px; border:1px solid rgba(255,255,255,0.1); }
+
+.leaflet-popup-content-wrapper { background:var(--surface) !important; border:1px solid var(--border) !important; border-radius:0 !important; color:var(--text) !important; box-shadow:4px 4px 0 rgba(0,0,0,0.5) !important; }
+.leaflet-popup-tip { background:var(--surface) !important; }
+.leaflet-popup-content { margin:10px 14px !important; font-family:'Noto Sans JP',sans-serif !important; }
+
+.toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%) translateY(60px); background:var(--accent); color:#000; font-family:'Bebas Neue',sans-serif; font-size:16px; letter-spacing:2px; padding:8px 20px; z-index:4000; transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1); clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,8px 100%,0 calc(100% - 8px)); }
+.toast.show { transform:translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<header>
+  <div style="display:flex;align-items:center;gap:16px">
+    <div class="logo">SPOT MAP<span>β v0.2</span></div>
+    <div class="mode-indicator" id="modeIndicator">ADD MODE — クリックでピン設置</div>
+  </div>
+  <div class="header-actions">
+    <button class="btn-ghost" id="toggleSidebar">スポット一覧</button>
+    <button class="btn" id="addModeBtn">＋ スポット追加</button>
+  </div>
+</header>
+
+<div class="main">
+  <div id="map">
+    <div class="map-hint" id="mapHint">▼ 地図上のスポットをクリックしてピンを設置</div>
+  </div>
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-title">SPOTS</div>
+      <div class="spot-count" id="spotCount">— 件登録中</div>
+    </div>
+    <div class="sidebar-list" id="sidebarList"></div>
+  </div>
+</div>
+
+<!-- 新規追加モーダル -->
+<div class="modal-overlay" id="addModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">NEW SPOT</div>
+      <button class="modal-close" id="addModalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">SPOT NAME</label>
+        <input class="form-input" id="spotName" type="text" placeholder="例: 盛岡ダムスケ" maxlength="30">
+      </div>
+      <div class="form-group">
+        <label class="form-label">MEMO（任意）</label>
+        <input class="form-input" id="spotMemo" type="text" placeholder="例: ダム横の壁が最高" maxlength="60">
+      </div>
+      <div class="form-group">
+        <label class="form-label">TYPE</label>
+        <div class="type-selector">
+          <button class="type-btn skate selected" data-type="skate">🛹 SKATE</button>
+          <button class="type-btn outdoor" data-type="outdoor">🏕 OUTDOOR</button>
+          <button class="type-btn other" data-type="other">📍 OTHER</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">COORDINATES</label>
+        <div class="coords-display" id="coordsDisplay">— 地図をクリックして位置を選択</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-ghost" id="addModalCancel">キャンセル</button>
+      <button class="btn" id="addModalSave">SAVE SPOT</button>
+    </div>
+  </div>
+</div>
+
+<!-- 詳細モーダル -->
+<div class="modal-overlay" id="detailModal">
+  <div class="modal detail-modal">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="detailName">SPOT NAME</div>
+        <div style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--muted);margin-top:2px" id="detailMemo"></div>
+      </div>
+      <button class="modal-close" id="detailModalClose">✕</button>
+    </div>
+
+    <div class="detail-tabs">
+      <button class="detail-tab active" data-tab="checkin">📍 CHECK IN</button>
+      <button class="detail-tab" data-tab="board">💬 掲示板</button>
+    </div>
+
+    <!-- チェックインパネル -->
+    <div class="detail-panel active" id="panel-checkin">
+      <div class="checkin-panel-body">
+        <div class="spot-info-bar">
+          <div class="spot-info-bar-name" id="checkinSpotName">—</div>
+          <div class="spot-info-bar-meta" id="checkinSpotMeta">—</div>
+        </div>
+        <div class="detail-actions">
+          <button class="checkin-btn" id="checkinBtn">📍 CHECK IN</button>
+          <button class="delete-btn" id="deleteBtn" title="スポット削除">🗑</button>
+        </div>
+        <div class="checkin-count-detail" id="checkinCountDetail" style="display:none">
+          <div class="count-num" id="checkinCountNum">1</div>
+          <div class="count-label">人がチェックイン中<br><span id="checkinCountTimer" style="color:var(--tag-outdoor)"></span></div>
+        </div>
+        <div class="checkin-status" id="checkinStatus"></div>
+      </div>
+    </div>
+
+    <!-- 掲示板パネル -->
+    <div class="detail-panel" id="panel-board">
+      <div class="board-panel">
+        <div class="board-posts" id="boardPosts"></div>
+        <div class="board-form">
+          <div class="board-form-top">
+            <input class="post-name-input" id="postName" type="text" placeholder="名前" maxlength="20">
+            <textarea class="post-text-input" id="postText" placeholder="コメントを入力… (Ctrl+Enterで送信)" maxlength="300"></textarea>
+          </div>
+          <div class="board-form-bottom">
+            <label class="photo-label" for="postPhoto">📷 写真</label>
+            <input type="file" id="postPhoto" accept="image/*" style="display:none">
+            <img class="photo-preview" id="photoPreview" alt="preview">
+            <button class="photo-clear" id="photoClear">✕</button>
+            <button class="post-submit-btn" id="postSubmit">POST</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ライトボックス -->
+<div class="lightbox" id="lightbox">
+  <img id="lightboxImg" src="" alt="拡大写真">
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let spots = JSON.parse(localStorage.getItem('spotmap_spots') || '[]');
+let checkins = JSON.parse(localStorage.getItem('spotmap_checkins') || '{}');
+let posts = JSON.parse(localStorage.getItem('spotmap_posts') || '{}');
+let addMode = false;
+let pendingLatLng = null;
+let selectedType = 'skate';
+let currentDetailId = null;
+let markers = {};
+let pendingPhotoDataUrl = null;
+
+// MAP
+const map = L.map('map', { center:[39.7036,141.1527], zoom:13, zoomControl:false });
+const tileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom:19
+}).addTo(map);
+tileLayer.on('tileerror', function() {
+  map.removeLayer(tileLayer);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, subdomains:'abc' }).addTo(map);
+});
+L.control.zoom({ position:'bottomright' }).addTo(map);
+
+// MARKER
+function createMarkerIcon(spot) {
+  const isIn = isActiveCheckin(spot.id);
+  const tc = spot.type === 'skate' ? '' : spot.type;
+  return L.divIcon({ className:'', iconSize:[80,32], iconAnchor:[40,14],
+    html:`<div class="custom-marker"><div class="marker-dot ${tc} ${isIn?'checked-in':''}"></div><div class="marker-label">${esc(spot.name)}</div></div>`
+  });
+}
+function addMarkerToMap(spot) {
+  markers[spot.id] = L.marker([spot.lat,spot.lng], {icon:createMarkerIcon(spot)})
+    .addTo(map).on('click', () => openDetail(spot.id));
+}
+function refreshMarker(id) {
+  const s = spots.find(x=>x.id===id);
+  if(s && markers[id]) markers[id].setIcon(createMarkerIcon(s));
+}
+
+// SAVE
+const saveSpots = () => localStorage.setItem('spotmap_spots', JSON.stringify(spots));
+const saveCheckins = () => localStorage.setItem('spotmap_checkins', JSON.stringify(checkins));
+const savePosts = () => localStorage.setItem('spotmap_posts', JSON.stringify(posts));
+
+// CHECKIN
+function isActiveCheckin(id) { const t=checkins[id]; return t && Date.now()-t < 3600000; }
+function getCheckinInfo(id) {
+  const t=checkins[id]; if(!t) return null;
+  const e=Date.now()-t; if(e>=3600000) return null;
+  return { remaining: Math.floor((3600000-e)/60000) };
+}
+function doCheckin(id) { checkins[id]=Date.now(); saveCheckins(); refreshMarker(id); renderSidebar(); }
+
+// SIDEBAR
+function renderSidebar() {
+  const list = document.getElementById('sidebarList');
+  document.getElementById('spotCount').textContent = spots.length + ' 件登録中';
+  if(!spots.length) {
+    list.innerHTML = `<div class="empty-state"><div class="icon">📍</div><p>まだスポットがありません<br>「＋ スポット追加」から<br>地図にエリアを追加しよう</p></div>`;
+    return;
+  }
+  list.innerHTML = spots.map(s => {
+    const ci = getCheckinInfo(s.id);
+    const tl = {skate:'🛹 SKATE',outdoor:'🏕 OUTDOOR',other:'📍 OTHER'}[s.type]||'OTHER';
+    const tc = s.type==='outdoor'?'outdoor':s.type==='other'?'other':'';
+    const cb = s.type==='outdoor'?'type-outdoor':s.type==='other'?'type-other':'';
+    const pc = (posts[s.id]||[]).length;
+    return `<div class="spot-card ${cb}" data-id="${s.id}">
+      <div class="spot-card-name">${esc(s.name)}</div>
+      <div class="spot-card-meta">
+        <span class="spot-tag ${tc}">${tl}</span>
+        ${pc>0?`<span class="spot-post-count">💬 ${pc}</span>`:''}
+      </div>
+      ${ci?`<div class="spot-checkins">👤 1</div>`:''}
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.spot-card').forEach(c => c.addEventListener('click', ()=>{
+    const s = spots.find(x=>x.id===c.dataset.id);
+    if(s) map.panTo([s.lat, s.lng]);
+    openDetail(c.dataset.id);
+  }));
+}
+
+// DETAIL
+function openDetail(id) {
+  const s = spots.find(x=>x.id===id);
+  if(!s) return;
+  currentDetailId = id;
+  document.getElementById('detailName').textContent = s.name;
+  document.getElementById('detailMemo').textContent = s.memo||'';
+  document.getElementById('checkinSpotName').textContent = s.name;
+  document.getElementById('checkinSpotMeta').textContent = `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}`;
+  // タブをCHECK INにリセット
+  document.querySelectorAll('.detail-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.detail-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelector('.detail-tab[data-tab="checkin"]').classList.add('active');
+  document.getElementById('panel-checkin').classList.add('active');
+  updateCheckinUI(id);
+  renderBoardPosts(id);
+  openModal('detailModal');
+}
+
+function updateCheckinUI(id) {
+  const btn=document.getElementById('checkinBtn');
+  const status=document.getElementById('checkinStatus');
+  const countDetail=document.getElementById('checkinCountDetail');
+  const countNum=document.getElementById('checkinCountNum');
+  const countTimer=document.getElementById('checkinCountTimer');
+  const info=getCheckinInfo(id);
+  if(info) {
+    btn.textContent='✓ チェックイン中'; btn.classList.add('checked-in');
+    status.classList.remove('visible');
+    countDetail.style.display='flex';
+    countNum.textContent='1';
+    countTimer.textContent=`残り約 ${info.remaining} 分`;
+  } else {
+    btn.textContent='📍 CHECK IN'; btn.classList.remove('checked-in');
+    status.classList.remove('visible');
+    countDetail.style.display='none';
+  }
+}
+
+// BOARD
+function renderBoardPosts(id) {
+  const c = document.getElementById('boardPosts');
+  const sp = posts[id]||[];
+  if(!sp.length) { c.innerHTML=`<div class="post-empty">まだ投稿がありません。最初の一言をどうぞ！</div>`; return; }
+  c.innerHTML = sp.map(p => `<div class="post-item" data-post-id="${p.id}">
+    <div class="post-header">
+      <span class="post-author">${esc(p.author||'Anonymous')}</span>
+      <span class="post-time">${fmtTime(p.ts)}</span>
+      <button class="post-delete-btn" data-post-id="${p.id}">✕</button>
+    </div>
+    ${p.text?`<div class="post-body">${esc(p.text)}</div>`:''}
+    ${p.photo?`<img class="post-photo" src="${p.photo}" data-src="${p.photo}" alt="投稿写真">`:''}
+  </div>`).join('');
+  c.querySelectorAll('.post-photo').forEach(img => img.addEventListener('click', ()=>openLightbox(img.dataset.src)));
+  c.querySelectorAll('.post-delete-btn').forEach(btn => btn.addEventListener('click', ()=>deletePost(id, btn.dataset.postId)));
+  c.scrollTop = c.scrollHeight;
+}
+
+function submitPost() {
+  if(!currentDetailId) return;
+  const author = document.getElementById('postName').value.trim()||'Anonymous';
+  const text = document.getElementById('postText').value.trim();
+  const photo = pendingPhotoDataUrl;
+  if(!text && !photo) { showToast('テキストか写真を入力してください'); return; }
+  const post = { id:'post_'+Date.now(), author, text, photo:photo||null, ts:Date.now() };
+  if(!posts[currentDetailId]) posts[currentDetailId]=[];
+  posts[currentDetailId].push(post);
+  savePosts();
+  renderBoardPosts(currentDetailId);
+  renderSidebar();
+  document.getElementById('postText').value='';
+  clearPhoto();
+  showToast('投稿しました！');
+}
+
+function deletePost(spotId, postId) {
+  if(!posts[spotId]) return;
+  posts[spotId] = posts[spotId].filter(p=>p.id!==postId);
+  savePosts(); renderBoardPosts(spotId); renderSidebar();
+}
+
+// PHOTO
+document.getElementById('postPhoto').addEventListener('change', e => {
+  const f = e.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    pendingPhotoDataUrl = ev.target.result;
+    const prev = document.getElementById('photoPreview');
+    prev.src = pendingPhotoDataUrl; prev.classList.add('show');
+    document.getElementById('photoClear').classList.add('show');
+  };
+  r.readAsDataURL(f);
+});
+document.getElementById('photoClear').addEventListener('click', clearPhoto);
+function clearPhoto() {
+  pendingPhotoDataUrl=null;
+  document.getElementById('photoPreview').src='';
+  document.getElementById('photoPreview').classList.remove('show');
+  document.getElementById('photoClear').classList.remove('show');
+  document.getElementById('postPhoto').value='';
+}
+
+// LIGHTBOX
+function openLightbox(src) { document.getElementById('lightboxImg').src=src; document.getElementById('lightbox').classList.add('open'); }
+document.getElementById('lightbox').addEventListener('click', ()=>document.getElementById('lightbox').classList.remove('open'));
+
+// TABS
+document.querySelectorAll('.detail-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.detail-tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.detail-panel').forEach(p=>p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-'+tab.dataset.tab).classList.add('active');
+    if(tab.dataset.tab==='board' && currentDetailId) setTimeout(()=>{ const el=document.getElementById('boardPosts'); el.scrollTop=el.scrollHeight; },50);
+  });
+});
+
+// ADD MODE
+function setAddMode(on) {
+  addMode=on;
+  document.getElementById('modeIndicator').classList.toggle('active',on);
+  document.getElementById('mapHint').classList.toggle('show',on);
+  document.getElementById('map').classList.toggle('add-mode',on);
+}
+map.on('click', e => {
+  if(!addMode) return;
+  pendingLatLng=e.latlng;
+  document.getElementById('coordsDisplay').textContent=`${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
+  setAddMode(false); openModal('addModal');
+  setTimeout(()=>document.getElementById('spotName').focus(),100);
+});
+
+// MODAL
+const openModal = id => document.getElementById(id).classList.add('open');
+const closeModal = id => document.getElementById(id).classList.remove('open');
+
+document.getElementById('addModeBtn').addEventListener('click', ()=>{ setAddMode(true); showToast('地図をクリックしてスポットを配置！'); });
+document.getElementById('addModalClose').addEventListener('click', ()=>closeModal('addModal'));
+document.getElementById('addModalCancel').addEventListener('click', ()=>{ closeModal('addModal'); pendingLatLng=null; });
+document.querySelectorAll('.type-btn').forEach(btn => btn.addEventListener('click', ()=>{
+  document.querySelectorAll('.type-btn').forEach(b=>b.classList.remove('selected'));
+  btn.classList.add('selected'); selectedType=btn.dataset.type;
+}));
+document.getElementById('addModalSave').addEventListener('click', ()=>{
+  const name=document.getElementById('spotName').value.trim();
+  if(!name) { showToast('スポット名を入力してください'); return; }
+  if(!pendingLatLng) { showToast('地図上の位置を選択してください'); return; }
+  const spot={id:'spot_'+Date.now(),name,memo:document.getElementById('spotMemo').value.trim(),type:selectedType,lat:pendingLatLng.lat,lng:pendingLatLng.lng,createdAt:Date.now()};
+  spots.push(spot); saveSpots(); addMarkerToMap(spot); renderSidebar();
+  document.getElementById('spotName').value=''; document.getElementById('spotMemo').value='';
+  document.getElementById('coordsDisplay').textContent='— 地図をクリックして位置を選択';
+  pendingLatLng=null; closeModal('addModal'); map.panTo([spot.lat,spot.lng]);
+  showToast(`"${spot.name}" を追加しました！`);
+});
+
+document.getElementById('detailModalClose').addEventListener('click', ()=>closeModal('detailModal'));
+document.getElementById('checkinBtn').addEventListener('click', ()=>{
+  if(!currentDetailId) return; doCheckin(currentDetailId); updateCheckinUI(currentDetailId); showToast('チェックイン完了！');
+});
+document.getElementById('deleteBtn').addEventListener('click', ()=>{
+  if(!currentDetailId) return;
+  const s=spots.find(x=>x.id===currentDetailId); if(!s) return;
+  if(!confirm(`"${s.name}" を削除しますか？`)) return;
+  spots=spots.filter(x=>x.id!==currentDetailId); saveSpots();
+  if(markers[currentDetailId]) { map.removeLayer(markers[currentDetailId]); delete markers[currentDetailId]; }
+  delete checkins[currentDetailId]; delete posts[currentDetailId];
+  saveCheckins(); savePosts(); renderSidebar(); closeModal('detailModal'); showToast('スポットを削除しました');
+});
+
+document.getElementById('postSubmit').addEventListener('click', submitPost);
+document.getElementById('postText').addEventListener('keydown', e=>{ if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)) submitPost(); });
+
+document.getElementById('toggleSidebar').addEventListener('click', ()=>{
+  const sb=document.getElementById('sidebar'); sb.style.display=sb.style.display==='none'?'flex':'none';
+});
+['addModal','detailModal'].forEach(id=>{
+  document.getElementById(id).addEventListener('click', e=>{ if(e.target.id===id) closeModal(id); });
+});
+
+// UTILS
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmtTime(ts) {
+  const d=new Date(ts), now=new Date(), diff=now-d;
+  if(diff<60000) return 'たった今';
+  if(diff<3600000) return Math.floor(diff/60000)+'分前';
+  if(diff<86400000) return Math.floor(diff/3600000)+'時間前';
+  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+let toastTimer;
+function showToast(msg) {
+  const el=document.getElementById('toast'); el.textContent=msg; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.remove('show'),2500);
+}
+
+// INIT
+spots.forEach(s=>addMarkerToMap(s));
+renderSidebar();
+setInterval(()=>{
+  const now=Date.now(); let changed=false;
+  Object.keys(checkins).forEach(id=>{ if(now-checkins[id]>=3600000){ delete checkins[id]; changed=true; refreshMarker(id); } });
+  if(changed){ saveCheckins(); renderSidebar(); }
+},60000);
+</script>
+</body>
+</html>
